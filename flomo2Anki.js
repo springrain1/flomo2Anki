@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         flomo2Anki
 // @namespace    http://tampermonkey.net/
-// @version      0.9
+// @version      1.0
 // @description  将 flomo 笔记发送到 Anki，支持单张和批量发送，并处理标签和时间链接
 // @author       springrain
 // @match        https://v.flomoapp.com/mine*
@@ -77,23 +77,20 @@
                 const content = extractContent(memo);
                 const tags = extractTags(memo);
                 const modelName = getModelName(tags);
-                const fields = getFields(content, modelName);
-
-
+	    // 获取包含元数据的字段信息
+	    const { fields, primaryField } = getFields(content, modelName);
                 if (!content) throw new Error('卡片内容为空');
-
 
                 return {
                     deckName: config.defaultDeck,
                     modelName: modelName,
                     fields: fields,
                     tags: tags,
+        	    primaryField: primaryField  // 添加主字段信息
                 };
             });
 
-
             console.log('正在发送到 Anki:', notes); // 调试信息
-
 
             // 检查重复卡片并发送
             const { successNotes, updatedNotes } = await checkAndSendNotes(notes);
@@ -107,69 +104,89 @@
         }
     }
 
+	// 修改后的checkAndSendNotes函数
+	async function checkAndSendNotes(notes) {
+		const successNotes = [];
+		const updatedNotes = [];
 
-    // 检查重复卡片并发送
-    async function checkAndSendNotes(notes) {
-        const successNotes = []; // 成功添加的卡片
-        const updatedNotes = []; // 成功更新的卡片
+		for (const note of notes) {
+			try {
+				// 获取主字段信息
+				const primaryFieldName = note.primaryField.name;
+				let primaryFieldValue = note.primaryField.value;
 
+				// 转义特殊字符（双引号）
+				primaryFieldValue = primaryFieldValue.replace(/"/g, '\\"');
 
-        for (const note of notes) {
-            try {
-                // 查找是否存在相同卡片
-                const findResult = await ankiconnectRequest('findNotes', {
-                    query: `deck:"${note.deckName}" note:"${note.modelName}" front:"${note.fields.Front}"`,
-                });
+				// 构建精确查询语句
+				const query = `"deck:${note.deckName}" "note:${note.modelName}" "${primaryFieldName}:${primaryFieldValue}"`;
 
+				const findResult = await ankiconnectRequest('findNotes', { query });
 
-                if (findResult.result.length > 0) {
-                    // 如果找到相同卡片，则更新
-                    const noteId = findResult.result[0];
-                    await ankiconnectRequest('updateNoteFields', {
-                        note: {
-                            id: noteId,
-                            fields: note.fields,
-                        },
-                    });
-                    updatedNotes.push(note);
-                } else {
-                    // 如果没有找到，则添加新卡片
-                    await ankiconnectRequest('addNote', { note });
-                    successNotes.push(note);
-                }
-            } catch (error) {
-                console.error('Error:', error);
-                throw error;
-            }
-        }
+				if (findResult.result.length > 0) {
+					// 更新现有卡片
+					const noteId = findResult.result[0];
+					await updateNote(noteId, note);
+					updatedNotes.push(note);
+				} else {
+					// 添加新卡片
+					await ankiconnectRequest('addNote', {
+						note: {
+							deckName: note.deckName,
+							modelName: note.modelName,
+							fields: note.fields,
+							tags: note.tags
+						}
+					});
+					successNotes.push(note);
+				}
+			} catch (error) {
+				console.error('Error:', error);
+				throw error;
+			}
+		}
+		return { successNotes, updatedNotes };
+	}
 
+	// 新增的updateNote函数
+	async function updateNote(noteId, newNote) {
+		// 更新字段
+		await ankiconnectRequest('updateNoteFields', {
+			note: {
+				id: noteId,
+				fields: newNote.fields
+			}
+		});
 
-        return { successNotes, updatedNotes };
-    }
+		// 合并标签
+		const noteInfo = await ankiconnectRequest('notesInfo', { notes: [noteId] });
+		const existingTags = noteInfo.result[0].tags || [];
+		const mergedTags = [...new Set([...existingTags, ...newNote.tags])];
 
+		// 直接传递 noteId 和 tags
+		await ankiconnectRequest('updateNoteTags', {
+			note: noteId,
+			tags: mergedTags
+		});
+	}
 
     // 提取内容并处理
     function extractContent(memo) {
         const contentElement = memo.querySelector('.mainContent');
         if (!contentElement) return '';
 
-
         // 克隆节点以避免修改原始 DOM
         const clonedContent = contentElement.cloneNode(true);
-
 
         // 剔除不需要的部分
         const relatedElements = clonedContent.querySelectorAll('.related');
         relatedElements.forEach((el) => el.remove());
 
-
         // 清理无效标签
         let cleanedContent = cleanInvalidTags(clonedContent.innerHTML);
 
-
         // 删除内容中的 # 标签
         cleanedContent = cleanedContent.replace(/<span class="tag">#(.*?)<\/span>/g, '');
-
 
         // 添加时间链接
         const timeLink = memo.querySelector('.time');
@@ -179,7 +196,6 @@
             const fullUrl = `https://flomoapp.com/mine/?memo_id=${memoId}`;
             cleanedContent += `Source:<a href="${fullUrl}">${timeText}</a>`;
         }
-
 
         return cleanedContent.trim();
     }
@@ -210,49 +226,62 @@
     }
 
 
-// 根据模板名称处理内容并生成字段
-function getFields(content, modelName) {
-    const fields = {};
-    if (modelName === '问答卡片') {
-        // 创建一个临时 DOM 元素来解析 HTML
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = content;
+	// 根据模板名称处理内容并生成字段
+	function getFields(content, modelName) {
+		const fields = {};
+		if (modelName === '问答卡片') {
+			// 创建一个临时 DOM 元素来解析 HTML
+			const tempDiv = document.createElement('div');
+			tempDiv.innerHTML = content;
 
-        // 获取所有的 <p> 标签
-        const paragraphs = tempDiv.querySelectorAll('p');
+			// 获取所有的 <p> 标签
+			const paragraphs = tempDiv.querySelectorAll('p');
 
-        let question = '';
+			let question = '';
 
-        // 处理第一个 <p> 标签
-        const firstParagraph = paragraphs[0];
-        const firstParagraphText = firstParagraph.textContent.trim();
+			// 处理第一个 <p> 标签
+			const firstParagraph = paragraphs[0];
+			const firstParagraphText = firstParagraph.textContent.trim();
 
-        // 判断第一个 <p> 标签是否包含问题
-        if (firstParagraphText && !firstParagraphText.endsWith('#')) {
-            // 情况1：标签与问题在同一行
-            question = firstParagraphText.replace(/#[^ ]+/g, '').trim(); // 去掉标签
-        } else {
-            // 情况2：标签单独一行，问题在随后一行
-            if (paragraphs.length > 1) {
-                question = paragraphs[1].textContent.trim();
-            }
+			// 判断第一个 <p> 标签是否包含问题
+			if (firstParagraphText && !firstParagraphText.endsWith('#')) {
+				// 情况1：标签与问题在同一行
+				question = firstParagraphText.replace(/#[^ ]+/g, '').trim(); // 去掉标签
+			} else {
+				// 情况2：标签单独一行，问题在随后一行
+				if (paragraphs.length > 1) {
+					question = paragraphs[1].textContent.trim();
+				}
+			}
+			// 剩余内容作为答案字段
+			const answer = content
+			.replace(question, '') // 剔除问题部分
+			.replace(/<p>\s*<\/p>/g, '') // 匹配 <p></p> 及其内部的空白字符
+			.replace(/<p\s*\/>/g, '') // 匹配自闭合的 <p />
+			.trim();
+			return {
+				fields: {
+					[config.fieldMapping[modelName].Front] : question,
+					[config.fieldMapping[modelName].Back] : answer
+				},
+				primaryField: {
+					name: config.fieldMapping[modelName].Front,
+					value: question
+				}
+			};
+			}else {
+			return {
+				fields: {
+					[config.fieldMapping[modelName].Front] : content,
+					[config.fieldMapping[modelName].Back] : content
+					},
+				primaryField: {
+					name: config.fieldMapping[modelName].Front,
+					value: content
+				}
+			};
         }
-		// 剩余内容作为答案字段
-		const answer = content
-		.replace(question, '') // 剔除问题部分
-        .replace(/<p>\s*<\/p>/g, '') // 匹配 <p></p> 及其内部的空白字符
-        .replace(/<p\s*\/>/g, '') // 匹配自闭合的 <p />
-		.trim();
-        fields[config.fieldMapping[modelName].Front] = question;
-        fields[config.fieldMapping[modelName].Back] = answer;
-    } else {
-        fields[config.fieldMapping[modelName].Front] = content;
-        fields[config.fieldMapping[modelName].Back] = content;
-    }
-    return fields;
-}
-
-
+	}
 
     // 清理无效标签
     function cleanInvalidTags(html) {
@@ -262,14 +291,11 @@ function getFields(content, modelName) {
         //将flomo卡片中的缩略图链接改为原图链接
         html = html.replace(/<img[^>]*src="([^"]*\/thumbnail[^"]*)"[^>]*data-source="([^"]*)"[^>]*>/g, '<img src="$2" class="el-image__inner" style="object-fit: cover;">');
 
-
         // 剔除空的 <div class="placeholder"></div>
         html = html.replace(/<div[^>]*class="placeholder"[^>]*><\/div>/g, '');
 
-
         // 剔除其他空的 div 标签
         html = html.replace(/<div[^>]*><\/div>/g, '');
-
 
         return html.trim();
     }
@@ -292,6 +318,7 @@ function getFields(content, modelName) {
         });
     }
 
+	
 	// 初始化
 	function init() {
 		// 查找所有卡片
@@ -304,6 +331,7 @@ function getFields(content, modelName) {
 		addBatchAndSelectAllButtons();
 	}
 
+	
 	// 为单张卡片添加复选框和按钮
 	function addCheckboxAndButton(memo) {
 		// 检查是否已添加按钮和复选框
@@ -323,6 +351,7 @@ function getFields(content, modelName) {
 		}
 	}
 
+	
 	// 全选按钮点击事件
 	function handleSelectAll() {
 		// 获取所有复选框（包括后续动态加载的）
@@ -418,7 +447,7 @@ function getFields(content, modelName) {
 	});
 
 	// 开始观察页面变化
-		observer.observe(document.body, { childList: true, subtree: true });
+	observer.observe(document.body, { childList: true, subtree: true });
 
     // 页面加载完成后初始化
     window.addEventListener('load', init);
