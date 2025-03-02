@@ -18,6 +18,37 @@
 (function () {
     'use strict';
 
+    // 创建全局调试状态变量
+    let DEBUG_MODE = false;
+
+    // 修改Logger类，使用全局变量
+    const Logger = {
+        debug(message, ...args) {
+            if (DEBUG_MODE) {
+                console.debug(message, ...args);
+            }
+        },
+        info(message, ...args) {
+            if (DEBUG_MODE) {
+                console.info(message, ...args);
+            }
+        },
+        log(message, ...args) {
+            if (DEBUG_MODE) {
+                console.log(message, ...args);
+            }
+        },
+        warn(message, ...args) {
+            if (DEBUG_MODE) {
+                console.warn(message, ...args);
+            }
+        },
+        error(message, ...args) {
+            // 错误日志始终输出
+            console.error(message, ...args);
+        }
+    };
+
     // 创建配置管理类
     class Config {
         constructor() {
@@ -30,10 +61,12 @@
                     '划线卡片': {
                         Front: '引用',
                         Back: '引用',
+                        Source: 'Source'
                     },
                     '问答卡片': {
                         Front: '问题',
                         Back: '答案',
+                        Source: 'Source'
                     },
                 },
                 buttonStyle: {
@@ -59,7 +92,8 @@
                     folder: 'img/',
                     endpoint: 'oss-cn-shenzhen.aliyuncs.com',
                     saveWithoutDialog: false
-                }
+                },
+                debug: false  // 添加调试开关
             };
 
             // 从存储加载配置
@@ -81,6 +115,13 @@
                 console.error('加载配置失败:', e);
                 this.config = JSON.parse(JSON.stringify(this.defaultConfig)); // 出错时使用默认配置
             }
+
+            // 在配置加载后更新全局调试状态
+            if (this.config.debug) {
+                DEBUG_MODE = true;
+                console.log("调试模式已启用");
+            }
+
             return this.config;
         }
 
@@ -179,13 +220,17 @@
                 formHtml += `
                     <div class="model-mapping" data-model="${model}" style="margin-bottom: 10px; padding: 10px; border: 1px solid #ddd; ${this.config.defaultModel === model ? '' : 'display: none;'}">
                         <h4 style="margin-top: 0;">${model}</h4>
-                        <div style="display: flex; margin-bottom: 5px;">
-                            <label style="width: 80px;">Front 字段:</label>
-                            <input id="mapping-${model}-front" type="text" value="${this.config.fieldMapping[model].Front}" style="flex: 1; padding: 5px;">
+                        <div style="display: flex; margin-bottom: 5px; align-items: center;">
+                            <label style="width: 120px; min-width: 120px; white-space: nowrap;">Front 字段:</label>
+                            <input id="mapping-${model}-front" type="text" value="${this.config.fieldMapping[model].Front}" style="width: 200px; padding: 5px;">
                         </div>
-                        <div style="display: flex;">
-                            <label style="width: 80px;">Back 字段:</label>
-                            <input id="mapping-${model}-back" type="text" value="${this.config.fieldMapping[model].Back}" style="flex: 1; padding: 5px;">
+                        <div style="display: flex; margin-bottom: 5px; align-items: center;">
+                            <label style="width: 120px; min-width: 120px; white-space: nowrap;">Back 字段:</label>
+                            <input id="mapping-${model}-back" type="text" value="${this.config.fieldMapping[model].Back}" style="width: 200px; padding: 5px;">
+                        </div>
+                        <div style="display: flex; align-items: center;">
+                            <label style="width: 120px; min-width: 120px; white-space: nowrap;">Source 字段:</label>
+                            <input id="mapping-${model}-source" type="text" value="${this.config.fieldMapping[model].Source || 'Source'}" style="width: 200px; padding: 5px;">
                         </div>
                     </div>
                 `;
@@ -246,6 +291,13 @@
                         <input id="button-border-radius" type="number" value="${parseInt(this.config.buttonStyle.borderRadius)}" min="0" max="20" style="width: 60px; padding: 5px;">px
                     </div>
                 </div>
+
+                <div style="margin-top: 10px;">
+                    <label>
+                        <input type="checkbox" id="debug-mode" ${this.config.debug ? 'checked' : ''}>
+                        启用调试模式
+                    </label>
+                </div>
             `;
 
             form.innerHTML = formHtml;
@@ -291,6 +343,7 @@
                     const model = mapping.dataset.model;
                     const frontField = document.getElementById(`mapping-${model}-front`).value;
                     const backField = document.getElementById(`mapping-${model}-back`).value;
+                    const sourceField = document.getElementById(`mapping-${model}-source`).value;
 
                     // 确保该模板存在于配置中
                     if (!this.config.fieldMapping[model]) {
@@ -299,6 +352,7 @@
 
                     this.config.fieldMapping[model].Front = frontField;
                     this.config.fieldMapping[model].Back = backField;
+                    this.config.fieldMapping[model].Source = sourceField;
                 });
 
                 // 图片处理设置
@@ -318,6 +372,10 @@
                 this.config.buttonStyle.backgroundColor = document.getElementById('button-bg-color').value;
                 this.config.buttonStyle.color = document.getElementById('button-text-color').value;
                 this.config.buttonStyle.borderRadius = document.getElementById('button-border-radius').value + 'px';
+
+                // 在保存配置时获取调试开关状态
+                const debugMode = document.getElementById('debug-mode').checked;
+                this.updateDebugMode(debugMode);
 
                 // 保存配置
                 this.saveConfig();
@@ -351,6 +409,16 @@
             form.querySelector('#migrate-to-oss').addEventListener('change', function() {
                 document.getElementById('oss-settings').style.display = this.checked ? 'block' : 'none';
             });
+        }
+
+        // 添加更新调试状态的方法
+        updateDebugMode(isDebug) {
+            this.config.debug = isDebug;
+            DEBUG_MODE = isDebug;
+            if (isDebug) {
+                console.log("调试模式已启用");
+            }
+            this.saveConfig();
         }
     }
 
@@ -387,23 +455,23 @@
             const notes = [];
 
             for (const memo of memos) {
-                let content = extractContent(memo);
+                const contentData = extractContent(memo);
                 const tags = extractTags(memo);
                 const modelName = getModelName(tags);
 
-                console.log('原始内容:', content.substring(0, 100) + '...');
+                Logger.log('原始内容:', contentData.content.substring(0, 100) + '...');
 
                 // 处理卡片中的图片
                 if (config.downloadImages || config.migrateToOSS) {
-                    console.log('准备处理图片, 下载:', config.downloadImages, '迁移到OSS:', config.migrateToOSS);
-                    content = await processCardImages(content);
-                    console.log('图片处理后内容:', content.substring(0, 100) + '...');
+                    Logger.log('准备处理图片, 下载:', config.downloadImages, '迁移到OSS:', config.migrateToOSS);
+                    contentData.content = await processCardImages(contentData.content);
+                    Logger.log('图片处理后内容:', contentData.content.substring(0, 100) + '...');
                 }
 
-                if (!content) throw new Error('卡片内容为空');
+                if (!contentData.content) throw new Error('卡片内容为空');
 
                 // 获取包含元数据的字段信息
-                const { fields, primaryField } = getFields(content, modelName);
+                const { fields, primaryField } = getFields(contentData, modelName);
 
                 notes.push({
                     deckName: config.defaultDeck,
@@ -414,7 +482,7 @@
                 });
             }
 
-            console.log('正在发送到 Anki:', notes);
+            Logger.log('正在发送到 Anki:', notes);
 
             // 检查重复卡片并发送
             const { successNotes, updatedNotes } = await checkAndSendNotes(notes);
@@ -423,7 +491,7 @@
             // 显示结果
             Swal.fire('成功！', `已成功发送 ${successNotes.length} 张卡片，更新 ${updatedNotes.length} 张卡片到 Anki`, 'success');
         } catch (error) {
-            console.error('Error:', error);
+            Logger.error('Error:', error);
             Swal.fire('错误', `发送失败: ${error}`, 'error');
         }
     }
@@ -435,34 +503,81 @@
 
 		for (const note of notes) {
 			try {
-				// 获取主字段信息
-				const primaryFieldName = note.primaryField.name;
-				let primaryFieldValue = note.primaryField.value;
-
-				// 转义特殊字符（双引号）
-				primaryFieldValue = primaryFieldValue.replace(/"/g, '\\"');
-
-				// 构建精确查询语句
-				const query = `"deck:${note.deckName}" "note:${note.modelName}" "${primaryFieldName}:${primaryFieldValue}"`;
-
-				const findResult = await ankiconnectRequest('findNotes', { query });
-
-				if (findResult.result.length > 0) {
-					// 更新现有卡片
-					const noteId = findResult.result[0];
-					await updateNote(noteId, note);
-					updatedNotes.push(note);
+				// 获取Source字段的值作为查询依据
+				const sourceFieldName = config.fieldMapping[note.modelName].Source;
+				let sourceFieldValue = note.fields[sourceFieldName];
+				
+				// 如果Source字段为空，则使用原来的主字段作为查询依据
+				if (!sourceFieldValue) {
+					const primaryFieldName = note.primaryField.name;
+					sourceFieldValue = note.primaryField.value;
+					
+					// 转义特殊字符（双引号）
+					sourceFieldValue = sourceFieldValue.replace(/"/g, '\\"');
+					
+					// 构建精确查询语句
+					const query = `"deck:${note.deckName}" "note:${note.modelName}" "${primaryFieldName}:${sourceFieldValue}"`;
+					const findResult = await ankiconnectRequest('findNotes', { query });
+					
+					if (findResult.result.length > 0) {
+						// 更新现有卡片
+						const noteId = findResult.result[0];
+						await updateNote(noteId, note);
+						updatedNotes.push(note);
+					} else {
+						// 添加新卡片
+						await ankiconnectRequest('addNote', {
+							note: {
+								deckName: note.deckName,
+								modelName: note.modelName,
+								fields: note.fields,
+								tags: note.tags
+							}
+						});
+						successNotes.push(note);
+					}
 				} else {
-					// 添加新卡片
-					await ankiconnectRequest('addNote', {
-						note: {
-							deckName: note.deckName,
-							modelName: note.modelName,
-							fields: note.fields,
-							tags: note.tags
+					// 提取URL部分作为查询依据
+					const urlMatch = sourceFieldValue.match(/href="([^"]+)"/);
+					if (urlMatch && urlMatch[1]) {
+						const sourceUrl = urlMatch[1];
+						
+						// 转义特殊字符（双引号）
+						const escapedUrl = sourceUrl.replace(/"/g, '\\"');
+						
+						// 构建精确查询语句，使用Source字段包含URL的方式进行查询
+						const query = `"deck:${note.deckName}" "note:${note.modelName}" "${sourceFieldName}:*${escapedUrl}*"`;
+						const findResult = await ankiconnectRequest('findNotes', { query });
+						
+						if (findResult.result.length > 0) {
+							// 更新现有卡片
+							const noteId = findResult.result[0];
+							await updateNote(noteId, note);
+							updatedNotes.push(note);
+						} else {
+							// 添加新卡片
+							await ankiconnectRequest('addNote', {
+								note: {
+									deckName: note.deckName,
+									modelName: note.modelName,
+									fields: note.fields,
+									tags: note.tags
+								}
+							});
+							successNotes.push(note);
 						}
-					});
-					successNotes.push(note);
+					} else {
+						// 如果无法提取URL，则添加为新卡片
+						await ankiconnectRequest('addNote', {
+							note: {
+								deckName: note.deckName,
+								modelName: note.modelName,
+								fields: note.fields,
+								tags: note.tags
+							}
+						});
+						successNotes.push(note);
+					}
 				}
 			} catch (error) {
 				console.error('Error:', error);
@@ -474,24 +589,27 @@
 
 	// 新增的updateNote函数
 	async function updateNote(noteId, newNote) {
-		// 更新字段
-		await ankiconnectRequest('updateNoteFields', {
-			note: {
-				id: noteId,
-				fields: newNote.fields
+		try {
+			await ankiconnectRequest('updateNoteFields', {
+				note: {
+					id: noteId,
+					fields: newNote.fields
+				}
+			});
+
+			if (Array.isArray(newNote.tags) && newNote.tags.length > 0) {
+				Logger.log('更新卡片标签:', newNote.tags);
+				await ankiconnectRequest('updateNoteTags', {
+					note: noteId,
+					tags: newNote.tags
+				});
+			} else {
+				Logger.warn('警告: 新笔记没有标签');
 			}
-		});
-
-		// 合并标签
-		const noteInfo = await ankiconnectRequest('notesInfo', { notes: [noteId] });
-		const existingTags = noteInfo.result[0].tags || [];
-		const mergedTags = [...new Set([...existingTags, ...newNote.tags])];
-
-		// 直接传递 noteId 和 tags
-		await ankiconnectRequest('updateNoteTags', {
-			note: noteId,
-			tags: mergedTags
-		});
+		} catch (error) {
+			Logger.error('更新笔记失败:', error);
+			throw error;
+		}
 	}
 
     // 提取内容并处理
@@ -512,16 +630,20 @@
         // 删除内容中的 # 标签
         cleanedContent = cleanedContent.replace(/<span class="tag">#(.*?)<\/span>/g, '');
 
-        // 添加时间链接
+        // 获取时间链接信息但不添加到内容中
+        let sourceLink = '';
         const timeLink = memo.querySelector('.time');
         if (timeLink) {
             const timeText = timeLink.querySelector('.text')?.innerText || '';
             const memoId = timeLink.getAttribute('href').split('=')[1];
             const fullUrl = `https://flomoapp.com/mine/?memo_id=${memoId}`;
-            cleanedContent += `Source:<a href="${fullUrl}">${timeText}</a>`;
+            sourceLink = `<a href="${fullUrl}">${timeText}</a>`;
         }
 
-        return cleanedContent.trim();
+        return { 
+            content: cleanedContent.trim(), 
+            sourceLink: sourceLink
+        };
     }
 
 
@@ -529,11 +651,19 @@
     function extractTags(memo) {
         const tags = [];
         const tagElements = memo.querySelectorAll('.richText .tag');
+        
         tagElements.forEach((tag) => {
-            let tagText = tag.innerText.replace('#', ''); // 去掉 #
-            tagText = tagText.replace(/\//g, '::'); // 将 / 替换为 ::
-            tags.push(tagText);
+            let tagText = tag.innerText.trim();
+            if (tagText) {
+                tagText = tagText.replace('#', '');
+                tagText = tagText.replace(/\//g, '::');
+                if (tagText) {
+                    tags.push(tagText);
+                }
+            }
         });
+
+        Logger.log('提取的标签:', tags);
         return tags;
     }
 
@@ -551,8 +681,13 @@
 
 
 	// 根据模板名称处理内容并生成字段
-	function getFields(content, modelName) {
+	function getFields(contentData, modelName) {
+		const { content, sourceLink } = contentData;
 		const fields = {};
+		
+		// 所有模板都添加Source字段
+		fields[config.fieldMapping[modelName].Source] = sourceLink;
+		
 		if (modelName === '问答卡片') {
 			// 创建一个临时 DOM 元素来解析 HTML
 			const tempDiv = document.createElement('div');
@@ -583,25 +718,26 @@
 			.replace(/<p>\s*<\/p>/g, '') // 匹配 <p></p> 及其内部的空白字符
 			.replace(/<p\s*\/>/g, '') // 匹配自闭合的 <p />
 			.trim();
+			
+			fields[config.fieldMapping[modelName].Front] = question;
+			fields[config.fieldMapping[modelName].Back] = answer;
+			
 			return {
-				fields: {
-					[config.fieldMapping[modelName].Front] : question,
-					[config.fieldMapping[modelName].Back] : answer
-				},
+				fields: fields,
 				primaryField: {
-					name: config.fieldMapping[modelName].Front,
-					value: question
+					name: config.fieldMapping[modelName].Source,
+					value: sourceLink
 				}
 			};
-			}else {
+		} else {
+			fields[config.fieldMapping[modelName].Front] = content;
+			fields[config.fieldMapping[modelName].Back] = content;
+			
 			return {
-				fields: {
-					[config.fieldMapping[modelName].Front] : content,
-					[config.fieldMapping[modelName].Back] : content
-					},
+				fields: fields,
 				primaryField: {
-					name: config.fieldMapping[modelName].Front,
-					value: content
+					name: config.fieldMapping[modelName].Source,
+					value: sourceLink
 				}
 			};
 		}

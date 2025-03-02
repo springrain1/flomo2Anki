@@ -6,7 +6,7 @@
 
 - flomo卡片![Pasted image 20250208204428](https://springrain-picturebed.oss-cn-shenzhen.aliyuncs.com/img/Pasted%20image%2020250208204428.png)
 
-- Anki卡片![Pasted image 20250208204413](https://springrain-picturebed.oss-cn-shenzhen.aliyuncs.com/img/Pasted%20image%2020250208204413.png)
+- Anki卡片![image-20250302232052202](https://springrain-picturebed.oss-cn-shenzhen.aliyuncs.com/img/image-20250302232052202.png)
 
 ### 基本格式
 
@@ -27,14 +27,15 @@
 
 - 问答卡片（basic）
 
-	- 自动将带有“#AK问答”的标签卡片转化为问答卡片，剔除标签后的第一行为问题字段（支持标签与问题在一行、标签在首行而问题在下一行），后面的为答案字段
-	- 自动查询Anki中是否有内容相同的第一个字段”问题“，如果存在则更新现有卡片“答案”和“标签”字段（flomo原卡片第一行已编辑修改的视为新卡片）
-
+  - 自动将带有“#AK问答”的标签卡片转化为问答卡片，剔除标签后的第一行为问题字段（支持标签与问题在一行、标签在首行而问题在下一行），后面的为答案字段
 - 划线卡片（cloze）
 
-	- 自动将带有“#AK划线”的标签卡片转化为划线卡片的引用字段，flomo下划线格式内容模板自动识别为cloze
-	- 自动查询Anki中是否有内容相同的第一个字段”引用“，如果存在则更新现有卡片“标签”字段（需刷新网页，flomo原卡片已编辑修改的视为新卡片）
-	- 无“#AK问答”、“#AK划线”的标签卡片，自动按“#AK划线”处理
+  - 自动将带有“#AK划线”的标签卡片转化为划线卡片的引用字段，flomo下划线格式内容模板自动识别为cloze
+
+### 更新处理
+
+- 自动查询Anki中是否有内容相同的源链接字段“Source”，如果存在则更新现有卡片所有字段（问题、答案、标签、引用）
+- 无“#AK问答”、“#AK划线”的标签卡片，自动按配置区默认模板处理
 
 ### 转发处理
 
@@ -45,7 +46,7 @@
 
 ![image-20250302155925387](https://springrain-picturebed.oss-cn-shenzhen.aliyuncs.com/img/image-20250302155925387.png)
 
-- 可修改自定义牌组名称和按钮样式![image-20250302160456202](https://springrain-picturebed.oss-cn-shenzhen.aliyuncs.com/img/image-20250302160456202.png)
+- 可修改自定义牌组名称、默认模板和按钮样式等![image-20250302231820433](https://springrain-picturebed.oss-cn-shenzhen.aliyuncs.com/img/image-20250302231820433.png)
 - 可进行图片处理，因为flomo网站上的图床链接是有防盗链机制的（有效期内可访问），通过下载上传到私有第三方图床就可以长久访问，建议用PicGo批量上传下载的图片，当勾选迁移至私有第三方图床，配置好相关信息后，会自动修改发送Anki中的图床链接![image-20250302160443712](https://springrain-picturebed.oss-cn-shenzhen.aliyuncs.com/img/image-20250302160443712.png)
 - 批量下载网页中的原始图片，flomo卡片中显示的是缩略图，这里进行了处理为原图下载，若卡片图片较多时，为避免一个个另存为窗口，可以在浏览器中进行如下设置：![image-20250302161731717](https://springrain-picturebed.oss-cn-shenzhen.aliyuncs.com/img/image-20250302161731717.png)
 
