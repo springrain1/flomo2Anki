@@ -1,11 +1,14 @@
 // ==UserScript==
 // @name         flomo2Anki
 // @namespace    http://tampermonkey.net/
-// @version      1.0
+// @version      1.1
 // @description  将 flomo 笔记发送到 Anki，支持单张和批量发送，并处理标签和时间链接
 // @author       springrain
 // @match        https://v.flomoapp.com/mine*
 // @grant        GM_xmlhttpRequest
+// @grant        GM_registerMenuCommand
+// @grant        GM_setValue
+// @grant        GM_getValue
 // @connect      localhost
 // @require      https://cdn.jsdelivr.net/npm/sweetalert2@11
 // ==/UserScript==
@@ -14,41 +17,250 @@
 (function () {
     'use strict';
 
+    // 创建配置管理类
+    class Config {
+        constructor() {
+            // 默认配置
+            this.defaultConfig = {
+                ankiconnectUrl: 'http://localhost:8765', 
+                defaultDeck: 'flomo', 
+                defaultModel: '划线卡片', 
+                fieldMapping: {
+                    '划线卡片': {
+                        Front: '引用',
+                        Back: '引用',
+                    },
+                    '问答卡片': {
+                        Front: '问题',
+                        Back: '答案',
+                    },
+                },
+                buttonStyle: {
+                    marginLeft: '10px',
+                    padding: '5px 10px',
+                    backgroundColor: '#4CAF50',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                },
+                checkboxStyle: {
+                    marginLeft: '10px',
+                    cursor: 'pointer',
+                }
+            };
+            
+            // 从存储加载配置
+            this.loadConfig();
+        }
+        
+        // 加载配置
+        loadConfig() {
+            try {
+                const savedConfig = GM_getValue('flomo2anki_config');
+                this.config = savedConfig ? JSON.parse(savedConfig) : this.defaultConfig;
+            } catch (e) {
+                console.error('加载配置失败:', e);
+                this.config = this.defaultConfig;
+            }
+            return this.config;
+        }
+        
+        // 保存配置
+        saveConfig() {
+            GM_setValue('flomo2anki_config', JSON.stringify(this.config));
+        }
+        
+        // 显示配置对话框
+        showConfigDialog() {
+            // 创建对话框容器
+            const dialog = document.createElement('div');
+            dialog.style.cssText = `
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: white;
+                padding: 20px;
+                border-radius: 8px;
+                box-shadow: 0 0 10px rgba(0,0,0,0.3);
+                z-index: 10000;
+                width: 500px;
+                max-width: 90vw;
+                max-height: 90vh;
+                overflow-y: auto;
+            `;
+            
+            // 对话框标题
+            const title = document.createElement('h3');
+            title.textContent = 'flomo2Anki 配置';
+            title.style.marginTop = '0';
+            
+            // 创建表单
+            const form = document.createElement('div');
+            
+            // 基本设置区域
+            let formHtml = `
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 5px;">AnkiConnect 地址：</label>
+                    <input id="ankiconnect-url" type="text" value="${this.config.ankiconnectUrl}" style="width: 100%; padding: 5px;">
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 5px;">默认牌组：</label>
+                    <input id="default-deck" type="text" value="${this.config.defaultDeck}" style="width: 100%; padding: 5px;">
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 5px;">默认模板：</label>
+                    <select id="default-model" style="width: 100%; padding: 5px;">
+            `;
+            
+            // 添加现有模板到选择器
+            const models = Object.keys(this.config.fieldMapping);
+            models.forEach(model => {
+                formHtml += `<option value="${model}" ${this.config.defaultModel === model ? 'selected' : ''}>${model}</option>`;
+            });
+            
+            formHtml += `
+                    </select>
+                </div>
+                
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 5px;">模板字段映射：</label>
+                    <div id="field-mappings">
+            `;
+            
+            // 为每个模板创建字段映射区域
+            models.forEach(model => {
+                formHtml += `
+                    <div class="model-mapping" data-model="${model}" style="margin-bottom: 10px; padding: 10px; border: 1px solid #ddd; ${this.config.defaultModel === model ? '' : 'display: none;'}">
+                        <h4 style="margin-top: 0;">${model}</h4>
+                        <div style="display: flex; margin-bottom: 5px;">
+                            <label style="width: 80px;">Front 字段:</label>
+                            <input id="mapping-${model}-front" type="text" value="${this.config.fieldMapping[model].Front}" style="flex: 1; padding: 5px;">
+                        </div>
+                        <div style="display: flex;">
+                            <label style="width: 80px;">Back 字段:</label>
+                            <input id="mapping-${model}-back" type="text" value="${this.config.fieldMapping[model].Back}" style="flex: 1; padding: 5px;">
+                        </div>
+                    </div>
+                `;
+            });
+            
+            formHtml += `
+                    </div>
+                </div>
+                
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 5px;">按钮样式：</label>
+                    <div style="display: flex; margin-bottom: 5px;">
+                        <label style="width: 120px;">背景颜色:</label>
+                        <input id="button-bg-color" type="color" value="${this.config.buttonStyle.backgroundColor}" style="width: 50px; height: 30px;">
+                    </div>
+                    <div style="display: flex; margin-bottom: 5px;">
+                        <label style="width: 120px;">文字颜色:</label>
+                        <input id="button-text-color" type="color" value="${this.config.buttonStyle.color}" style="width: 50px; height: 30px;">
+                    </div>
+                    <div style="display: flex; margin-bottom: 5px;">
+                        <label style="width: 120px;">边框圆角:</label>
+                        <input id="button-border-radius" type="number" value="${parseInt(this.config.buttonStyle.borderRadius)}" min="0" max="20" style="width: 60px; padding: 5px;">px
+                    </div>
+                </div>
+            `;
+            
+            form.innerHTML = formHtml;
+            
+            // 按钮区域
+            const buttons = document.createElement('div');
+            buttons.style.textAlign = 'right';
+            buttons.style.marginTop = '20px';
+            
+            // 重置按钮
+            const resetBtn = document.createElement('button');
+            resetBtn.textContent = '恢复默认';
+            resetBtn.style.cssText = 'padding: 5px 15px; margin-right: 10px; cursor: pointer;';
+            resetBtn.onclick = () => {
+                if (confirm('确定要重置所有配置到默认值吗？')) {
+                    this.config = JSON.parse(JSON.stringify(this.defaultConfig)); // 深拷贝
+                    this.saveConfig();
+                    document.body.removeChild(dialog);
+                    Swal.fire('成功', '已恢复默认配置', 'success');
+                    setTimeout(() => location.reload(), 1500);
+                }
+            };
+            
+            // 取消按钮
+            const cancelBtn = document.createElement('button');
+            cancelBtn.textContent = '取消';
+            cancelBtn.style.cssText = 'padding: 5px 15px; margin-right: 10px; cursor: pointer;';
+            cancelBtn.onclick = () => document.body.removeChild(dialog);
+            
+            // 保存按钮
+            const saveBtn = document.createElement('button');
+            saveBtn.textContent = '保存';
+            saveBtn.style.cssText = 'padding: 5px 15px; background: #4CAF50; color: white; border: none; cursor: pointer;';
+            saveBtn.onclick = () => {
+                // 获取基本配置
+                this.config.ankiconnectUrl = document.getElementById('ankiconnect-url').value;
+                this.config.defaultDeck = document.getElementById('default-deck').value;
+                this.config.defaultModel = document.getElementById('default-model').value;
+                
+                // 获取所有模板的字段映射
+                const modelMappings = document.querySelectorAll('.model-mapping');
+                modelMappings.forEach(mapping => {
+                    const model = mapping.dataset.model;
+                    const frontField = document.getElementById(`mapping-${model}-front`).value;
+                    const backField = document.getElementById(`mapping-${model}-back`).value;
+                    
+                    // 确保该模板存在于配置中
+                    if (!this.config.fieldMapping[model]) {
+                        this.config.fieldMapping[model] = {};
+                    }
+                    
+                    this.config.fieldMapping[model].Front = frontField;
+                    this.config.fieldMapping[model].Back = backField;
+                });
+                
+                // 按钮样式
+                this.config.buttonStyle.backgroundColor = document.getElementById('button-bg-color').value;
+                this.config.buttonStyle.color = document.getElementById('button-text-color').value;
+                this.config.buttonStyle.borderRadius = document.getElementById('button-border-radius').value + 'px';
+                
+                // 保存配置
+                this.saveConfig();
+                
+                // 提示用户
+                document.body.removeChild(dialog);
+                Swal.fire('成功', '配置已保存', 'success');
+                
+                // 刷新页面应用新配置
+                setTimeout(() => location.reload(), 1500);
+            };
+            
+            // 组装对话框
+            buttons.appendChild(resetBtn);
+            buttons.appendChild(cancelBtn);
+            buttons.appendChild(saveBtn);
+            dialog.appendChild(title);
+            dialog.appendChild(form);
+            dialog.appendChild(buttons);
+            document.body.appendChild(dialog);
+            
+            // 添加事件监听器，以在更改默认模板时显示对应的字段映射
+            document.getElementById('default-model').addEventListener('change', function() {
+                const selectedModel = this.value;
+                document.querySelectorAll('.model-mapping').forEach(mapping => {
+                    mapping.style.display = mapping.dataset.model === selectedModel ? 'block' : 'none';
+                });
+            });
+        }
+    }
 
-    // ================= 配置区 =================
-    const config = {
-        ankiconnectUrl: 'http://localhost:8765', // Ankiconnect 地址
-        defaultDeck: 'flomo', // 修改为你的牌组名称
-        defaultModel: '划线卡片', // 修改为你的模板名称
-        fieldMapping: {
-            // 字段映射
-            '划线卡片': {
-                Front: '引用',
-                Back: '引用',
-            },
-            '问答卡片': {
-                Front: '问题',
-                Back: '答案',
-            },
-        },
-        buttonStyle: {
-            // 按钮样式
-            marginLeft: '10px',
-            padding: '5px 10px',
-            backgroundColor: '#4CAF50',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer',
-        },
-        checkboxStyle: {
-            // 复选框样式
-            marginLeft: '10px',
-            cursor: 'pointer',
-        },
-    };
-    // ================= 配置结束 =================
+    // 实例化配置管理
+    const configManager = new Config();
+    const config = configManager.config;
 
+    // 注册菜单命令
+    GM_registerMenuCommand('⚙️ 配置设置', () => configManager.showConfigDialog());
 
     // 创建发送按钮
     function createSendButton(memo) {
@@ -280,7 +492,7 @@
 					value: content
 				}
 			};
-        }
+		}
 	}
 
     // 清理无效标签
@@ -358,7 +570,7 @@
 		const checkboxes = document.querySelectorAll('.flomo2anki-checkbox');
 		const selectAllBtn = document.querySelector('#flomo2anki-select-all-btn');
 
-		// 判断当前是否处于“全选”状态
+		// 判断当前是否处于"全选"状态
 		const isAllSelected = selectAllBtn.dataset.allSelected === 'true';
 
 		// 切换所有复选框的状态
@@ -386,7 +598,7 @@
 			selectAllBtn.innerHTML = '全选';
 			Object.assign(selectAllBtn.style, config.buttonStyle);
 			selectAllBtn.style.marginRight = '10px'; // 与批量发送按钮保持间距
-			selectAllBtn.dataset.allSelected = 'false'; // 初始状态为“未全选”
+			selectAllBtn.dataset.allSelected = 'false'; // 初始状态为"未全选"
 			selectAllBtn.addEventListener('click', handleSelectAll); // 绑定点击事件
 
 			// 创建批量发送按钮
@@ -432,7 +644,7 @@
 					if (node.nodeType === 1 && node.classList.contains('memo')) { // 检查是否是卡片节点
 						addCheckboxAndButton(node); // 为新卡片添加复选框和按钮
 
-						// 如果全选按钮处于“全选”状态，确保新卡片也被选中
+						// 如果全选按钮处于"全选"状态，确保新卡片也被选中
 						const isAllSelected = document.querySelector('#flomo2anki-select-all-btn')?.dataset.allSelected === 'true';
 						if (isAllSelected) {
 							const checkbox = node.querySelector('.flomo2anki-checkbox');
