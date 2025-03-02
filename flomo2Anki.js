@@ -53,7 +53,7 @@
                 downloadImages: false,
                 migrateToOSS: false,
                 // 第三方图床配置
-                aliyunOSS: {
+                yourselfOSS: {
                     bucket: 'springrain-picturebed',
                     region: 'oss-cn-shenzhen',
                     folder: 'img/',
@@ -211,22 +211,22 @@
                     <label style="display: block; margin-bottom: 5px;">第三方图床设置：</label>
                     <div style="display: flex; margin-bottom: 5px;">
                         <label style="width: 120px;">Bucket:</label>
-                        <input id="oss-bucket" type="text" value="${this.config.aliyunOSS.bucket}" style="flex: 1; padding: 5px;">
+                        <input id="oss-bucket" type="text" value="${this.config.yourselfOSS.bucket}" style="flex: 1; padding: 5px;">
                     </div>
                     <div style="display: flex; margin-bottom: 5px;">
                         <label style="width: 120px;">Region:</label>
-                        <input id="oss-region" type="text" value="${this.config.aliyunOSS.region}" style="flex: 1; padding: 5px;">
+                        <input id="oss-region" type="text" value="${this.config.yourselfOSS.region}" style="flex: 1; padding: 5px;">
                     </div>
                     <div style="display: flex; margin-bottom: 5px;">
                         <label style="width: 120px;">Folder:</label>
-                        <input id="oss-folder" type="text" value="${this.config.aliyunOSS.folder}" style="flex: 1; padding: 5px;">
+                        <input id="oss-folder" type="text" value="${this.config.yourselfOSS.folder}" style="flex: 1; padding: 5px;">
                     </div>
                     <div style="display: flex; margin-bottom: 5px;">
                         <label style="width: 120px;">Endpoint:</label>
-                        <input id="oss-endpoint" type="text" value="${this.config.aliyunOSS.endpoint}" style="flex: 1; padding: 5px;">
+                        <input id="oss-endpoint" type="text" value="${this.config.yourselfOSS.endpoint}" style="flex: 1; padding: 5px;">
                     </div>
                     <div style="display: flex; margin-bottom: 5px; align-items: center;">
-                        <input id="save-without-dialog" type="checkbox" ${this.config.aliyunOSS.saveWithoutDialog ? 'checked' : ''}>
+                        <input id="save-without-dialog" type="checkbox" ${this.config.yourselfOSS.saveWithoutDialog ? 'checked' : ''}>
                         <label for="save-without-dialog" style="margin-left: 5px;">自动保存图片（无弹窗）</label>
                     </div>
                 </div>
@@ -306,7 +306,7 @@
                 this.config.migrateToOSS = document.getElementById('migrate-to-oss').checked;
 
                 // 第三方图床设置
-                this.config.aliyunOSS = {
+                this.config.yourselfOSS = {
                     bucket: document.getElementById('oss-bucket').value,
                     region: document.getElementById('oss-region').value,
                     folder: document.getElementById('oss-folder').value,
@@ -828,7 +828,7 @@
     function buildOssUrl(filename) {
         // 确保文件名是纯文件名，不包含路径
         const pureName = filename.split('/').pop();
-        return `https://${config.aliyunOSS.bucket}.${config.aliyunOSS.endpoint}/${config.aliyunOSS.folder}${pureName}`;
+        return `https://${config.yourselfOSS.bucket}.${config.yourselfOSS.endpoint}/${config.yourselfOSS.folder}${pureName}`;
     }
 
     // 下载单个图片
@@ -841,7 +841,7 @@
                 GM_download({
                     url: imageUrl,
                     name: filename,
-                    saveAs: !config.aliyunOSS.saveWithoutDialog, // 是否显示保存对话框
+                    saveAs: !config.yourselfOSS.saveWithoutDialog, // 是否显示保存对话框
                     onload: function() {
                         console.log(`图片下载成功: ${filename}`);
                         resolve(filename);

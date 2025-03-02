@@ -47,6 +47,7 @@
 
 - 可修改自定义牌组名称和按钮样式![image-20250302160456202](https://springrain-picturebed.oss-cn-shenzhen.aliyuncs.com/img/image-20250302160456202.png)
 - 可进行图片处理，因为flomo网站上的图床链接是有防盗链机制的（有效期内可访问），通过下载上传到私有第三方图床就可以长久访问，建议用PicGo批量上传下载的图片，当勾选迁移至私有第三方图床，配置好相关信息后，会自动修改发送Anki中的图床链接![image-20250302160443712](https://springrain-picturebed.oss-cn-shenzhen.aliyuncs.com/img/image-20250302160443712.png)
+- 批量下载网页中的原始图片，flomo卡片中显示的是缩略图，这里进行了处理为原图下载，若卡片图片较多时，为避免一个个另存为窗口，可以在浏览器中进行如下设置：![image-20250302161731717](https://springrain-picturebed.oss-cn-shenzhen.aliyuncs.com/img/image-20250302161731717.png)
 
 ## 使用说明
 
