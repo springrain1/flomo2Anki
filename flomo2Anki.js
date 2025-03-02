@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         flomo2Anki
 // @namespace    http://tampermonkey.net/
-// @version      1.1
+// @version      1.2
 // @description  将 flomo 笔记发送到 Anki，支持单张和批量发送，并处理标签和时间链接
 // @author       springrain
 // @match        https://v.flomoapp.com/mine*
@@ -9,6 +9,7 @@
 // @grant        GM_registerMenuCommand
 // @grant        GM_setValue
 // @grant        GM_getValue
+// @grant        GM_download
 // @connect      localhost
 // @require      https://cdn.jsdelivr.net/npm/sweetalert2@11
 // ==/UserScript==
@@ -22,9 +23,9 @@
         constructor() {
             // 默认配置
             this.defaultConfig = {
-                ankiconnectUrl: 'http://localhost:8765', 
-                defaultDeck: 'flomo', 
-                defaultModel: '划线卡片', 
+                ankiconnectUrl: 'http://localhost:8765',
+                defaultDeck: 'flomo',
+                defaultModel: '划线卡片',
                 fieldMapping: {
                     '划线卡片': {
                         Front: '引用',
@@ -47,30 +48,74 @@
                 checkboxStyle: {
                     marginLeft: '10px',
                     cursor: 'pointer',
+                },
+                // 图片处理配置
+                downloadImages: false,
+                migrateToOSS: false,
+                // 第三方图床配置
+                aliyunOSS: {
+                    bucket: 'springrain-picturebed',
+                    region: 'oss-cn-shenzhen',
+                    folder: 'img/',
+                    endpoint: 'oss-cn-shenzhen.aliyuncs.com',
+                    saveWithoutDialog: false
                 }
             };
-            
+
             // 从存储加载配置
             this.loadConfig();
         }
-        
+
         // 加载配置
         loadConfig() {
             try {
                 const savedConfig = GM_getValue('flomo2anki_config');
-                this.config = savedConfig ? JSON.parse(savedConfig) : this.defaultConfig;
+                if (savedConfig) {
+                    // 将保存的配置与默认配置深度合并
+                    const parsedConfig = JSON.parse(savedConfig);
+                    this.config = this.mergeDeep(this.defaultConfig, parsedConfig);
+                } else {
+                    this.config = JSON.parse(JSON.stringify(this.defaultConfig)); // 深拷贝默认配置
+                }
             } catch (e) {
                 console.error('加载配置失败:', e);
-                this.config = this.defaultConfig;
+                this.config = JSON.parse(JSON.stringify(this.defaultConfig)); // 出错时使用默认配置
             }
             return this.config;
         }
-        
+
+        // 深度合并对象方法
+        mergeDeep(target, source) {
+            const isObject = obj => obj && typeof obj === 'object' && !Array.isArray(obj);
+
+            // 创建目标对象的副本
+            const output = Object.assign({}, target);
+
+            if (isObject(target) && isObject(source)) {
+                Object.keys(source).forEach(key => {
+                    if (isObject(source[key])) {
+                        if (!(key in target)) {
+                            // 如果目标中不存在该键，直接复制源
+                            output[key] = source[key];
+                        } else {
+                            // 如果目标中存在该键且是对象，递归合并
+                            output[key] = this.mergeDeep(target[key], source[key]);
+                        }
+                    } else {
+                        // 源属性不是对象，直接覆盖
+                        output[key] = source[key];
+                    }
+                });
+            }
+
+            return output;
+        }
+
         // 保存配置
         saveConfig() {
             GM_setValue('flomo2anki_config', JSON.stringify(this.config));
         }
-        
+
         // 显示配置对话框
         showConfigDialog() {
             // 创建对话框容器
@@ -90,15 +135,15 @@
                 max-height: 90vh;
                 overflow-y: auto;
             `;
-            
+
             // 对话框标题
             const title = document.createElement('h3');
             title.textContent = 'flomo2Anki 配置';
             title.style.marginTop = '0';
-            
+
             // 创建表单
             const form = document.createElement('div');
-            
+
             // 基本设置区域
             let formHtml = `
                 <div style="margin-bottom: 15px;">
@@ -113,22 +158,22 @@
                     <label style="display: block; margin-bottom: 5px;">默认模板：</label>
                     <select id="default-model" style="width: 100%; padding: 5px;">
             `;
-            
+
             // 添加现有模板到选择器
             const models = Object.keys(this.config.fieldMapping);
             models.forEach(model => {
                 formHtml += `<option value="${model}" ${this.config.defaultModel === model ? 'selected' : ''}>${model}</option>`;
             });
-            
+
             formHtml += `
                     </select>
                 </div>
-                
+
                 <div style="margin-bottom: 15px;">
                     <label style="display: block; margin-bottom: 5px;">模板字段映射：</label>
                     <div id="field-mappings">
             `;
-            
+
             // 为每个模板创建字段映射区域
             models.forEach(model => {
                 formHtml += `
@@ -145,11 +190,47 @@
                     </div>
                 `;
             });
-            
+
             formHtml += `
                     </div>
                 </div>
-                
+
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 5px;">图片处理：</label>
+                    <div style="display: flex; margin-bottom: 5px; align-items: center;">
+                        <input id="download-images" type="checkbox" ${this.config.downloadImages ? 'checked' : ''}>
+                        <label for="download-images" style="margin-left: 5px;">批量下载网页中的原始图片</label>
+                    </div>
+                    <div style="display: flex; margin-bottom: 5px; align-items: center;">
+                        <input id="migrate-to-oss" type="checkbox" ${this.config.migrateToOSS ? 'checked' : ''}>
+                        <label for="migrate-to-oss" style="margin-left: 5px;">迁移至私有第三方图床（可将下载的图片用PicGo批量上传）</label>
+                    </div>
+                </div>
+
+                <div id="oss-settings" style="margin-bottom: 15px; ${this.config.migrateToOSS ? '' : 'display: none;'}">
+                    <label style="display: block; margin-bottom: 5px;">第三方图床设置：</label>
+                    <div style="display: flex; margin-bottom: 5px;">
+                        <label style="width: 120px;">Bucket:</label>
+                        <input id="oss-bucket" type="text" value="${this.config.aliyunOSS.bucket}" style="flex: 1; padding: 5px;">
+                    </div>
+                    <div style="display: flex; margin-bottom: 5px;">
+                        <label style="width: 120px;">Region:</label>
+                        <input id="oss-region" type="text" value="${this.config.aliyunOSS.region}" style="flex: 1; padding: 5px;">
+                    </div>
+                    <div style="display: flex; margin-bottom: 5px;">
+                        <label style="width: 120px;">Folder:</label>
+                        <input id="oss-folder" type="text" value="${this.config.aliyunOSS.folder}" style="flex: 1; padding: 5px;">
+                    </div>
+                    <div style="display: flex; margin-bottom: 5px;">
+                        <label style="width: 120px;">Endpoint:</label>
+                        <input id="oss-endpoint" type="text" value="${this.config.aliyunOSS.endpoint}" style="flex: 1; padding: 5px;">
+                    </div>
+                    <div style="display: flex; margin-bottom: 5px; align-items: center;">
+                        <input id="save-without-dialog" type="checkbox" ${this.config.aliyunOSS.saveWithoutDialog ? 'checked' : ''}>
+                        <label for="save-without-dialog" style="margin-left: 5px;">自动保存图片（无弹窗）</label>
+                    </div>
+                </div>
+
                 <div style="margin-bottom: 15px;">
                     <label style="display: block; margin-bottom: 5px;">按钮样式：</label>
                     <div style="display: flex; margin-bottom: 5px;">
@@ -166,14 +247,14 @@
                     </div>
                 </div>
             `;
-            
+
             form.innerHTML = formHtml;
-            
+
             // 按钮区域
             const buttons = document.createElement('div');
             buttons.style.textAlign = 'right';
             buttons.style.marginTop = '20px';
-            
+
             // 重置按钮
             const resetBtn = document.createElement('button');
             resetBtn.textContent = '恢复默认';
@@ -187,13 +268,13 @@
                     setTimeout(() => location.reload(), 1500);
                 }
             };
-            
+
             // 取消按钮
             const cancelBtn = document.createElement('button');
             cancelBtn.textContent = '取消';
             cancelBtn.style.cssText = 'padding: 5px 15px; margin-right: 10px; cursor: pointer;';
             cancelBtn.onclick = () => document.body.removeChild(dialog);
-            
+
             // 保存按钮
             const saveBtn = document.createElement('button');
             saveBtn.textContent = '保存';
@@ -203,39 +284,52 @@
                 this.config.ankiconnectUrl = document.getElementById('ankiconnect-url').value;
                 this.config.defaultDeck = document.getElementById('default-deck').value;
                 this.config.defaultModel = document.getElementById('default-model').value;
-                
+
                 // 获取所有模板的字段映射
                 const modelMappings = document.querySelectorAll('.model-mapping');
                 modelMappings.forEach(mapping => {
                     const model = mapping.dataset.model;
                     const frontField = document.getElementById(`mapping-${model}-front`).value;
                     const backField = document.getElementById(`mapping-${model}-back`).value;
-                    
+
                     // 确保该模板存在于配置中
                     if (!this.config.fieldMapping[model]) {
                         this.config.fieldMapping[model] = {};
                     }
-                    
+
                     this.config.fieldMapping[model].Front = frontField;
                     this.config.fieldMapping[model].Back = backField;
                 });
-                
+
+                // 图片处理设置
+                this.config.downloadImages = document.getElementById('download-images').checked;
+                this.config.migrateToOSS = document.getElementById('migrate-to-oss').checked;
+
+                // 第三方图床设置
+                this.config.aliyunOSS = {
+                    bucket: document.getElementById('oss-bucket').value,
+                    region: document.getElementById('oss-region').value,
+                    folder: document.getElementById('oss-folder').value,
+                    endpoint: document.getElementById('oss-endpoint').value,
+                    saveWithoutDialog: document.getElementById('save-without-dialog').checked
+                };
+
                 // 按钮样式
                 this.config.buttonStyle.backgroundColor = document.getElementById('button-bg-color').value;
                 this.config.buttonStyle.color = document.getElementById('button-text-color').value;
                 this.config.buttonStyle.borderRadius = document.getElementById('button-border-radius').value + 'px';
-                
+
                 // 保存配置
                 this.saveConfig();
-                
+
                 // 提示用户
                 document.body.removeChild(dialog);
                 Swal.fire('成功', '配置已保存', 'success');
-                
+
                 // 刷新页面应用新配置
                 setTimeout(() => location.reload(), 1500);
             };
-            
+
             // 组装对话框
             buttons.appendChild(resetBtn);
             buttons.appendChild(cancelBtn);
@@ -244,13 +338,18 @@
             dialog.appendChild(form);
             dialog.appendChild(buttons);
             document.body.appendChild(dialog);
-            
+
             // 添加事件监听器，以在更改默认模板时显示对应的字段映射
             document.getElementById('default-model').addEventListener('change', function() {
                 const selectedModel = this.value;
                 document.querySelectorAll('.model-mapping').forEach(mapping => {
                     mapping.style.display = mapping.dataset.model === selectedModel ? 'block' : 'none';
                 });
+            });
+
+            // 添加 OSS 设置显示/隐藏逻辑
+            form.querySelector('#migrate-to-oss').addEventListener('change', function() {
+                document.getElementById('oss-settings').style.display = this.checked ? 'block' : 'none';
             });
         }
     }
@@ -285,24 +384,37 @@
     // 发送到 Anki
     async function sendToAnki(memos) {
         try {
-            const notes = memos.map((memo) => {
-                const content = extractContent(memo);
+            const notes = [];
+
+            for (const memo of memos) {
+                let content = extractContent(memo);
                 const tags = extractTags(memo);
                 const modelName = getModelName(tags);
-	    // 获取包含元数据的字段信息
-	    const { fields, primaryField } = getFields(content, modelName);
+
+                console.log('原始内容:', content.substring(0, 100) + '...');
+
+                // 处理卡片中的图片
+                if (config.downloadImages || config.migrateToOSS) {
+                    console.log('准备处理图片, 下载:', config.downloadImages, '迁移到OSS:', config.migrateToOSS);
+                    content = await processCardImages(content);
+                    console.log('图片处理后内容:', content.substring(0, 100) + '...');
+                }
+
                 if (!content) throw new Error('卡片内容为空');
 
-                return {
+                // 获取包含元数据的字段信息
+                const { fields, primaryField } = getFields(content, modelName);
+
+                notes.push({
                     deckName: config.defaultDeck,
                     modelName: modelName,
                     fields: fields,
                     tags: tags,
-        	    primaryField: primaryField  // 添加主字段信息
-                };
-            });
+                    primaryField: primaryField  // 添加主字段信息
+                });
+            }
 
-            console.log('正在发送到 Anki:', notes); // 调试信息
+            console.log('正在发送到 Anki:', notes);
 
             // 检查重复卡片并发送
             const { successNotes, updatedNotes } = await checkAndSendNotes(notes);
@@ -530,7 +642,7 @@
         });
     }
 
-	
+
 	// 初始化
 	function init() {
 		// 查找所有卡片
@@ -543,7 +655,7 @@
 		addBatchAndSelectAllButtons();
 	}
 
-	
+
 	// 为单张卡片添加复选框和按钮
 	function addCheckboxAndButton(memo) {
 		// 检查是否已添加按钮和复选框
@@ -563,7 +675,7 @@
 		}
 	}
 
-	
+
 	// 全选按钮点击事件
 	function handleSelectAll() {
 		// 获取所有复选框（包括后续动态加载的）
@@ -663,4 +775,150 @@
 
     // 页面加载完成后初始化
     window.addEventListener('load', init);
+
+    // 添加图片处理函数
+    // 从URL中提取原始文件名
+    function extractFilenameFromUrl(url) {
+        try {
+            // 移除查询参数
+            const urlWithoutParams = url.split('?')[0];
+            
+            // 获取URL的最后部分作为文件名
+            let filename = urlWithoutParams.split('/').pop();
+            
+            // 处理flomoapp.com的图片URL
+            if (url.includes('flomoapp.com')) {
+                // 从URL中提取文件名部分
+                const matches = urlWithoutParams.match(/\/([\d\.\-_]+[a-zA-Z0-9]+\.[a-zA-Z0-9]+)$/);
+                if (matches && matches[1]) {
+                    filename = matches[1];
+                }
+            }
+            
+            // 确保文件名有扩展名
+            if (!filename.includes('.')) {
+                filename += '.png';
+            }
+            
+            // 清理文件名
+            filename = sanitizeFilename(filename);
+            console.log(`从URL提取文件名: ${url} -> ${filename}`);
+            return filename;
+        } catch (error) {
+            console.error('提取文件名失败:', error, url);
+            return `img_${Date.now()}.png`;
+        }
+    }
+
+    // 清理文件名（移除不允许的字符）
+    function sanitizeFilename(filename) {
+        // 替换Windows文件名中不允许的字符
+        let sanitized = filename.replace(/[<>:"\/\\|?*]/g, '_');
+
+        // 限制文件名长度，防止路径过长错误
+        if (sanitized.length > 100) {
+            const extension = sanitized.includes('.') ? sanitized.substring(sanitized.lastIndexOf('.')) : '';
+            sanitized = sanitized.substring(0, 100 - extension.length) + extension;
+        }
+
+        return sanitized;
+    }
+
+    // 构建预期的第三方图床 URL
+    function buildOssUrl(filename) {
+        // 确保文件名是纯文件名，不包含路径
+        const pureName = filename.split('/').pop();
+        return `https://${config.aliyunOSS.bucket}.${config.aliyunOSS.endpoint}/${config.aliyunOSS.folder}${pureName}`;
+    }
+
+    // 下载单个图片
+    function downloadImage(imageUrl, filename) {
+        return new Promise((resolve, reject) => {
+            try {
+                console.log(`开始下载图片: ${imageUrl} 保存为 ${filename}`);
+
+                // 直接保存文件名，不加路径前缀
+                GM_download({
+                    url: imageUrl,
+                    name: filename,
+                    saveAs: !config.aliyunOSS.saveWithoutDialog, // 是否显示保存对话框
+                    onload: function() {
+                        console.log(`图片下载成功: ${filename}`);
+                        resolve(filename);
+                    },
+                    onerror: function(error) {
+                        console.error(`图片下载失败: ${imageUrl}, 错误: ${error}`);
+                        reject(new Error(`下载失败: ${error}`));
+                    }
+                });
+            } catch (error) {
+                console.error(`下载请求出错: ${error.message}`);
+                reject(error);
+            }
+        });
+    }
+
+    // 处理卡片中的图片
+    async function processCardImages(content) {
+        console.log('处理卡片图片开始，原始内容长度:', content.length);
+        
+        // 创建临时DOM元素解析HTML内容
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = content;
+        
+        // 获取所有图片元素
+        const images = tempDiv.querySelectorAll('img');
+        console.log(`找到 ${images.length} 张图片需要处理`);
+        
+        // 如果启用了迁移到OSS
+        if (config.migrateToOSS) {
+            for (const img of images) {
+                const originalUrl = img.getAttribute('data-source') || img.src;
+                if (!originalUrl) continue;
+                
+                const filename = extractFilenameFromUrl(originalUrl);
+                console.log(`处理图片: ${originalUrl} -> 文件名: ${filename}`);
+                
+                // 如果配置了下载图片
+                if (config.downloadImages) {
+                    try {
+                        await downloadImage(originalUrl, filename);
+                    } catch (error) {
+                        console.error(`下载图片失败: ${originalUrl}`, error);
+                    }
+                }
+                
+                // 替换为OSS链接
+                const ossUrl = buildOssUrl(filename);
+                console.log(`替换图片链接: ${originalUrl} -> ${ossUrl}`);
+                img.src = ossUrl;
+            }
+            
+            // 获取处理后的HTML
+            const processedContent = tempDiv.innerHTML;
+            console.log('处理后的内容长度:', processedContent.length);
+            return processedContent;
+        }
+        
+        // 如果只启用了下载但不迁移到OSS
+        if (config.downloadImages && !config.migrateToOSS) {
+            for (const img of images) {
+                const originalUrl = img.getAttribute('data-source') || img.src;
+                if (!originalUrl) continue;
+                
+                const filename = extractFilenameFromUrl(originalUrl);
+                console.log(`仅下载图片: ${originalUrl} -> 文件名: ${filename}`);
+                
+                try {
+                    await downloadImage(originalUrl, filename);
+                } catch (error) {
+                    console.error(`下载图片失败: ${originalUrl}`, error);
+                }
+            }
+        }
+        
+        // 如果没有启用OSS迁移，返回原始内容
+        console.log('返回内容，长度:', content.length);
+        return content;
+    }
 })();

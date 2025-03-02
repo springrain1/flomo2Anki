@@ -41,9 +41,12 @@
 - 支持单张flomo卡片发送：右上角单击「2Anki」按钮
 - 支持多张flomo卡片批量发送：单张卡片右上角勾选复选框或者点击网页右下角「全选」（全选后，网页往下划loading加载卡片时也能自动勾选），点击网页右下角「批量发送到Anki」
 
-### 其它
+### 配置区UI化
 
-- 脚本配置区可修改自定义牌组名称和模板名称
+![image-20250302155925387](https://springrain-picturebed.oss-cn-shenzhen.aliyuncs.com/img/image-20250302155925387.png)
+
+- 可修改自定义牌组名称和按钮样式![image-20250302160456202](https://springrain-picturebed.oss-cn-shenzhen.aliyuncs.com/img/image-20250302160456202.png)
+- 可进行图片处理，因为flomo网站上的图床链接是有防盗链机制的（有效期内可访问），通过下载上传到私有第三方图床就可以长久访问，建议用PicGo批量上传下载的图片，当勾选迁移至私有第三方图床，配置好相关信息后，会自动修改发送Anki中的图床链接![image-20250302160443712](https://springrain-picturebed.oss-cn-shenzhen.aliyuncs.com/img/image-20250302160443712.png)
 
 ## 使用说明
 
@@ -52,11 +55,8 @@
 ### Step2. 安装 Anki 并启用 Ankiconnect (2055492159)插件，导入flomo2Anki模板
 
 ### Step3. 保持 Anki 在后台运行，打开flomo网页进行操作
-## 后续改进项
 
-### 配置区UI化
+## 作者|Springrain，20250302
 
-
-
-## 制图|Springrain，20250208
+![及时春雨up赞赏码](https://springrain-picturebed.oss-cn-shenzhen.aliyuncs.com/img/%E5%8F%8A%E6%97%B6%E6%98%A5%E9%9B%A8up%E8%B5%9E%E8%B5%8F%E7%A0%81.jpg)
 
